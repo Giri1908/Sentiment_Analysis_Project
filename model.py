@@ -9,28 +9,36 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report
 import pickle
 
+# ===============================
+# Download Stopwords
+# ===============================
 nltk.download('stopwords')
 stop_words = set(stopwords.words('english'))
 
-# Load dataset
-df = pd.read_csv("dataset.csv")
+# Keep important negation words
+negation_words = {"not", "no", "nor", "never"}
+stop_words = stop_words - negation_words
 
-# Keep only needed columns
+
+# ===============================
+# 1️⃣ Load Dataset
+# ===============================
+df = pd.read_csv(r"C:\Sentiment_Analysis_Project\dataset.csv.csv")
+
+# Keep only required columns
 df = df[['Rating', 'Review Text']]
-
-# Remove missing values
 df = df.dropna()
 
-# Extract numeric rating safely
-df['Rating'] = df['Rating'].str.extract(r'(\d)')
-
-# Remove rows where extraction failed
+# ===============================
+# 2️⃣ Extract Numeric Rating
+# ===============================
+df['Rating'] = df['Rating'].astype(str).str.extract(r'(\d)')
 df = df.dropna(subset=['Rating'])
-
-# Convert to integer
 df['Rating'] = df['Rating'].astype(int)
 
-# Convert rating to sentiment
+# ===============================
+# 3️⃣ Convert Rating to Sentiment
+# ===============================
 def convert_sentiment(rating):
     if rating >= 4:
         return "Positive"
@@ -41,40 +49,89 @@ def convert_sentiment(rating):
 
 df['sentiment'] = df['Rating'].apply(convert_sentiment)
 
-# Clean review text
+# 🔎 Print class distribution
+print("\nClass Distribution:")
+print(df['sentiment'].value_counts())
+
+# ===============================
+# 4️⃣ Clean Review Text
+# ===============================
 def clean_text(text):
     text = re.sub('[^a-zA-Z]', ' ', str(text))
     text = text.lower()
     words = text.split()
-    words = [word for word in words if word not in stop_words]
-    return ' '.join(words)
 
+    processed_words = []
+    i = 0
+
+    while i < len(words):
+        if words[i] in {"not", "no", "never"} and i + 1 < len(words):
+            combined_word = words[i] + "_" + words[i+1]
+            processed_words.append(combined_word)
+            i += 2
+        else:
+            if words[i] not in stop_words:
+                processed_words.append(words[i])
+            i += 1
+
+    return ' '.join(processed_words)
 df['cleaned_review'] = df['Review Text'].apply(clean_text)
 
-# Features and labels
+# ===============================
+# 5️⃣ Features and Labels
+# ===============================
 X = df['cleaned_review']
 y = df['sentiment']
 
-# Split
+# ===============================
+# 6️⃣ Stratified Train-Test Split
+# ===============================
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
+    X,
+    y,
+    test_size=0.2,
+    random_state=42,
+    stratify=y
 )
 
-# TF-IDF
-vectorizer = TfidfVectorizer()
+# ===============================
+# 7️⃣ TF-IDF Vectorization (Improved)
+# ===============================
+vectorizer = TfidfVectorizer(
+    max_features=5000,
+    ngram_range=(1, 2)
+)
+
 X_train_tfidf = vectorizer.fit_transform(X_train)
 X_test_tfidf = vectorizer.transform(X_test)
 
-# Model
-model = LogisticRegression(max_iter=1000)
+# ===============================
+# 8️⃣ Logistic Regression (Manual Class Weight)
+# ===============================
+model = LogisticRegression(
+    class_weight={
+        "Negative": 1,
+        "Neutral": 2,   # Boost Neutral importance
+        "Positive": 1
+    },
+    max_iter=1000
+)
+
 model.fit(X_train_tfidf, y_train)
 
-# Prediction
+# ===============================
+# 9️⃣ Evaluation
+# ===============================
 y_pred = model.predict(X_test_tfidf)
 
-print("Accuracy:", accuracy_score(y_test, y_pred))
+print("\nAccuracy:", accuracy_score(y_test, y_pred))
+print("\nClassification Report:\n")
 print(classification_report(y_test, y_pred))
 
-# Save model
+# ===============================
+# 🔟 Save Model & Vectorizer
+# ===============================
 pickle.dump(model, open("sentiment_model.pkl", "wb"))
 pickle.dump(vectorizer, open("vectorizer.pkl", "wb"))
+
+print("\nModel and Vectorizer saved successfully!")
